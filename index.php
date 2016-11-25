@@ -1,70 +1,161 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
+  <head>
+    <meta charset="UTF-8">
+    <title>WebTorrent video player</title>
+    
+    <style>
+    
+    #output video {
+  width: 100%;
+}
+#progressBar {
+    height: 5px;
+    width: 0%;
+    background-color: #35b44f;
+    transition: width .4s ease-in-out;
+}
+body.is-seed .show-seed {
+    display: inline;
+}
+body.is-seed .show-leech {
+    display: none;
+}
+.show-seed {
+    display: none;
+}
+#status code {
+    font-size: 90%;
+    font-weight: 700;
+    margin-left: 3px;
+    margin-right: 3px;
+    border-bottom: 1px dashed rgba(255,255,255,0.3);
+}
+
+.is-seed #hero {
+    background-color: #154820;
+    transition: .5s .5s background-color ease-in-out;
+}
+#hero {
+    background-color: #2a3749;
+}
+#status {
+    color: #fff;
+    font-size: 17px;
+    padding: 5px;
+}
+a:link, a:visited {
+    color: #30a247;
+    text-decoration: none;
+}
+    
+    
+    </style>
+  </head>
   <body>
-    <h1>Download files using the WebTorrent protocol (BitTorrent over WebRTC).</h1>
-
-    <form>
-      <label for="torrentId">Download from a magnet link: </label>
-      <input name="torrentId", placeholder="magnet:" value="magnet:?xt=urn:btih:6a9759bffd5c0af65319979fb7832189f4f3c35d&dn=sintel.mp4&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.webtorrent.io&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fsintel-1024-surround.mp4">
-      <button type="submit">Download</button>
-    </form>
-
-    <h2>Log</h2>
-    <div class="log"></div>
-
+    <div id="hero">
+      <div id="output">
+        <div id="progressBar"></div>
+        <!-- The video player will be added here -->
+      </div>
+      <!-- Statistics -->
+      <div id="status">
+        <div>
+          <span class="show-leech">Downloading </span>
+          <span class="show-seed">Seeding </span>
+          <code>
+            <!-- Informative link to the torrent file -->
+            <a id="torrentLink" href="https://webtorrent.io/torrents/sintel.torrent">sintel.torrent</a>
+          </code>
+          <span class="show-leech"> from </span>
+          <span class="show-seed"> to </span>
+          <code id="numPeers">0 peers</code>.
+        </div>
+        <div>
+          <code id="downloaded"></code>
+          of <code id="total"></code>
+          — <span id="remaining"></span><br/>
+          &#x2198;<code id="downloadSpeed">0 b/s</code>
+          / &#x2197;<code id="uploadSpeed">0 b/s</code>
+        </div>
+      </div>
+    </div>
     <!-- Include the latest version of WebTorrent -->
     <script src="https://cdn.jsdelivr.net/webtorrent/latest/webtorrent.min.js"></script>
-
+    <!-- Moment is used to show human readable remaining time -->
+    <script src="http://momentjs.com/downloads/moment.min.js"></script>
     <script>
-      var client = new WebTorrent()
+    
+    var torrentId = 'https://webtorrent.io/torrents/sintel.torrent'
 
-      client.on('error', function (err) {
-        console.error('ERROR: ' + err.message)
-      })
+var client = new WebTorrent()
 
-      document.querySelector('form').addEventListener('submit', function (e) {
-        e.preventDefault() // Prevent page refresh
+// HTML elements
+var $body = document.body
+var $progressBar = document.querySelector('#progressBar')
+var $numPeers = document.querySelector('#numPeers')
+var $downloaded = document.querySelector('#downloaded')
+var $total = document.querySelector('#total')
+var $remaining = document.querySelector('#remaining')
+var $uploadSpeed = document.querySelector('#uploadSpeed')
+var $downloadSpeed = document.querySelector('#downloadSpeed')
 
-        var torrentId = document.querySelector('form input[name=torrentId]').value
-        log('Adding ' + torrentId)
-        client.add(torrentId, onTorrent)
-      })
+// Download the torrent
+client.add(torrentId, function (torrent) {
 
-      function onTorrent (torrent) {
-        log('Got torrent metadata!')
-        log(
-          'Torrent info hash: ' + torrent.infoHash + ' ' +
-          '<a href="' + torrent.magnetURI + '" target="_blank">[Magnet URI]</a> ' +
-          '<a href="' + torrent.torrentFileBlobURL + '" target="_blank" download="' + torrent.name + '.torrent">[Download .torrent]</a>'
-        )
+  // Stream the file in the browser
+  torrent.files[0].appendTo('#output')
 
-        // Print out progress every 5 seconds
-        var interval = setInterval(function () {
-          log('Progress: ' + (torrent.progress * 100).toFixed(1) + '%')
-        }, 5000)
+  // Trigger statistics refresh
+  torrent.on('done', onDone)
+  setInterval(onProgress, 500)
+  onProgress()
 
-        torrent.on('done', function () {
-          log('Progress: 100%')
-          clearInterval(interval)
-        })
+  // Statistics
+  function onProgress () {
+    // Peers
+    $numPeers.innerHTML = torrent.numPeers + (torrent.numPeers === 1 ? ' peer' : ' peers')
 
-        // Render all files into to the page
-        torrent.files.forEach(function (file) {
-          file.appendTo('.log')
-          log('(Blob URLs only work if the file is loaded from a server. "http//localhost" works. "file://" does not.)')
-          file.getBlobURL(function (err, url) {
-            if (err) return log(err.message)
-            log('File done.')
-            log('<a href="' + url + '">Download full file: ' + file.name + '</a>')
-          })
-        })
-      }
+    // Progress
+    var percent = Math.round(torrent.progress * 100 * 100) / 100
+    $progressBar.style.width = percent + '%'
+    $downloaded.innerHTML = prettyBytes(torrent.downloaded)
+    $total.innerHTML = prettyBytes(torrent.length)
 
-      function log (str) {
-        var p = document.createElement('p')
-        p.innerHTML = str
-        document.querySelector('.log').appendChild(p)
-      }
+    // Remaining time
+    var remaining
+    if (torrent.done) {
+      remaining = 'Done.'
+    } else {
+      remaining = moment.duration(torrent.timeRemaining / 1000, 'seconds').humanize()
+      remaining = remaining[0].toUpperCase() + remaining.substring(1) + ' remaining.'
+    }
+    $remaining.innerHTML = remaining
+
+    // Speed rates
+    $downloadSpeed.innerHTML = prettyBytes(torrent.downloadSpeed) + '/s'
+    $uploadSpeed.innerHTML = prettyBytes(torrent.uploadSpeed) + '/s'
+  }
+  function onDone () {
+    $body.className += ' is-seed'
+    onProgress()
+  }
+})
+
+// Human readable bytes util
+function prettyBytes(num) {
+  var exponent, unit, neg = num < 0, units = ['B', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+  if (neg) num = -num
+  if (num < 1) return (neg ? '-' : '') + num + ' B'
+  exponent = Math.min(Math.floor(Math.log(num) / Math.log(1000)), units.length - 1)
+  num = Number((num / Math.pow(1000, exponent)).toFixed(2))
+  unit = units[exponent]
+  return (neg ? '-' : '') + num + ' ' + unit
+}
+    
+    
     </script>
+    
+    
   </body>
 </html>
